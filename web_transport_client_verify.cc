@@ -67,7 +67,9 @@ namespace webtransport
         ca_cert_dir_(ca_cert_dir),
         use_public_key_(!public_key_file.empty()) {}
 
-  // This method is a stub that simply prints a message and returns success.
+  // VerifyProof validates the provided certificate chain using BoringSSL.  It
+  // delegates the actual certificate processing to VerifyCertChain and returns
+  // QUIC_FAILURE when validation fails.
   quic::QuicAsyncStatus BoringSSLProofVerifier::VerifyProof(
       const std::string &hostname, const uint16_t port,
       const std::string &server_config, quic::QuicTransportVersion transport_version,
@@ -77,7 +79,21 @@ namespace webtransport
       std::unique_ptr<quic::ProofVerifyDetails> *details,
       std::unique_ptr<quic::ProofVerifierCallback> callback)
   {
-    std::cerr << "[+] Checking VerifyProof instead" << std::endl;
+    uint8_t alert = 0;
+
+    quic::QuicAsyncStatus result = VerifyCertChain(
+        hostname, port, certs, /*ocsp_response=*/"", cert_sct, context,
+        error_details, details, &alert, nullptr);
+
+    if (result != quic::QUIC_SUCCESS)
+    {
+      if (error_details && error_details->empty())
+      {
+        *error_details = "Certificate verification failed";
+      }
+      return quic::QUIC_FAILURE;
+    }
+
     return quic::QUIC_SUCCESS;
   }
 
