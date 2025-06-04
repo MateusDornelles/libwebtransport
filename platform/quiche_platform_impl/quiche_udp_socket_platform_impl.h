@@ -6,9 +6,14 @@
 #define QUICHE_COMMON_PLATFORM_DEFAULT_QUICHE_PLATFORM_IMPL_QUICHE_UDP_SOCKET_PLATFORM_IMPL_H_
 
 #include <errno.h>
+#if defined(_WIN32)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 
 #include <cstddef>
 #include <cstdint>
@@ -27,8 +32,8 @@ inline bool GetGooglePacketHeadersFromControlMessageImpl(
 
 inline void SetGoogleSocketOptionsImpl(int /*fd*/) {}
 
-// The default implementation assigns ECN correctly given Linux socket APIs.
-// TODO(b/273081493): Implement Windows socket API calls.
+// Assign ECN on outgoing packets while preserving any DSCP bits that might have
+// been set on the socket.
 inline int GetEcnCmsgArgsPreserveDscpImpl(const int fd,
                                           const int address_family,
                                           uint8_t ecn_codepoint, int& type,
@@ -41,11 +46,20 @@ inline int GetEcnCmsgArgsPreserveDscpImpl(const int fd,
     return -EINVAL;
   }
   int* arg = static_cast<int*>(value);
-  if (getsockopt(fd, (address_family == AF_INET) ? IPPROTO_IP : IPPROTO_IPV6,
-                 (address_family == AF_INET) ? IP_TOS : IPV6_TCLASS, arg,
-                 &value_len) != 0) {
+#if defined(_WIN32)
+  int optlen = static_cast<int>(value_len);
+  if (::getsockopt(fd, (address_family == AF_INET) ? IPPROTO_IP : IPPROTO_IPV6,
+                   (address_family == AF_INET) ? IP_TOS : IPV6_TCLASS,
+                   reinterpret_cast<char*>(arg), &optlen) == SOCKET_ERROR) {
+    return -1 * WSAGetLastError();
+  }
+#else
+  if (::getsockopt(fd, (address_family == AF_INET) ? IPPROTO_IP : IPPROTO_IPV6,
+                   (address_family == AF_INET) ? IP_TOS : IPV6_TCLASS, arg,
+                   &value_len) != 0) {
     return -1 * errno;
   }
+#endif
   *arg &= static_cast<int>(~kQuichePlatformImplEcnMask);
   *arg |= static_cast<int>(ecn_codepoint);
   type = (address_family == AF_INET) ? IP_TOS : IPV6_TCLASS;
