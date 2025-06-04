@@ -24,12 +24,34 @@ DEFINE_QUICHE_COMMAND_LINE_FLAG_IMPL(std::string, certificate_file, "",
 DEFINE_QUICHE_COMMAND_LINE_FLAG_IMPL(std::string, key_file, "",
                                      "Path to the pkcs8 private key.");
 
+#include "web_transport_client_verify.h"
+
 namespace quiche {
 
-// TODO(vasilvv): implement this in order for the CLI tools to work.
 std::unique_ptr<quic::ProofVerifier> CreateDefaultProofVerifierImpl(
     const std::string& /*host*/) {
-  return nullptr;
+  std::string certificate_file =
+      quiche::GetQuicheCommandLineFlag(FLAGS_certificate_file);
+
+  // If no certificate is supplied, fall back to the system trust store.
+  if (certificate_file.empty()) {
+    return std::make_unique<webtransport::BoringSSLProofVerifier>();
+  }
+
+  // Check that the certificate file is readable before passing it to the
+  // verifier.  This mirrors the behaviour of CreateDefaultProofSourceImpl.
+  std::ifstream cert_stream(certificate_file, std::ios::binary);
+  std::vector<std::string> certs =
+      quic::CertificateView::LoadPemFromStream(&cert_stream);
+  if (certs.empty()) {
+    QUICHE_LOG(FATAL)
+        << "Failed to load certificate chain from --certificate_file="
+        << certificate_file;
+  }
+
+  return std::make_unique<webtransport::BoringSSLProofVerifier>(
+      certificate_file, /*ca_cert_bundle_path=*/"",
+      /*ca_cert_dir=*/"");
 }
 
 std::unique_ptr<quic::ProofSource> CreateDefaultProofSourceImpl() {
